@@ -1,0 +1,385 @@
+---
+title: "markdown-version"
+author: "group 2"
+date: "2024-04-28"
+output:
+  # html_document:
+  #   df_print: paged
+  pdf_document
+---
+
+
+
+# Pima Indians Diabetes Dataset
+
+## Problem Statement: Diabetes impact on global public health
+
+Diabetes is a chronic disease influenced by both genetic and environmental factors. Within the US, approximately 1 in 10 individuals have diabetes with 90% of cases being type 2 (CDC 2023).
+
+# Introduction to Pima Study
+
+Within the Pima Indian tribe of Arizona, there is an exceptionally high prevalence of type 2 diabetes, and has at times been considered the highest globally, (Knowler, W C et al., 1978). Alongside this high prevalence, the community exhibits fairly low genetic variability within the population, creating ideal conditions for identifying genetic factors that impact disease progression and susceptibility (L Baier et al., 2004)
+
+In a landmark effort, the NIH collaborated with the Pima tribe in a longitudinal study spanning decades beginning in 1962 and continuing into the present day. Insights derived from this study have contributed to growing knowledge of diabetes disease progression and treatment. (Nelson et al, 2021)
+
+The data of interest for this project, pulled from the Pima longitudinal study, is the Pima Indians Diabetes Database (Smitt et al., 1988. Originally, this dataset was collected in an effort to validate the predictive power of the ADAP machine learning model by Smith et al. (1988). Specifically, researchers were interested in predicting the likelihood of diabetes diagnosis within a span of 5 years. The diagnostic criteria at the time of the paper was defined as a measure of 2 hour post-load plasma glucose at 200 (mg/dl).
+
+# Dataset
+
+The variables measured in this study were (informally) pregnancies, plasma glucose, blood pressure, skin thickness, BMI, and diabetes pedigree function. The researchers aimed to quantify the genetic predisposition of the disease by capturing the family history through the pedigree function.
+
+# Research Question and Aim:
+
+The research question for this project is to identify variables that are associated with a diabetes diagnosis within the Pimas dataset. The outcome measured in this dataset is a diabetes diagnosis, within a 5-year period measured as a binary outcome. Logistic regression will be used to determine the associations between the independent variables within the dataset and the binary outcome of diabetes diagnosis.
+
+# Dataset: Pima Indians Diabetes Dataset
+
+```{r}
+#| label: load-packages
+#| include: false
+library(Hmisc)
+library(tidyverse)  # data manipulation and visualization
+library(modelr)     # provides easy pipeline modeling functions
+library(broom)
+library(ggplot2)
+library(paletteer)
+library(dplyr)
+library(pdp)
+library(stargazer)
+
+pima #if we want to visualize missing data
+dataset <- pima
+
+pima_clean <- na.omit(dataset)
+pima_clean$outcome <- 1*(pima_clean$diabetes == 'pos')
+pima_clean = subset(pima_clean, select = -c(diabetes) )
+
+```
+
+::: columns
+::: {.column width="50%"}
+::: {style="font-size: 75%;"}
+Variables
+
+\- pregnancies (int)
+
+\- plasma glucose (int)
+
+\- blood pressure (int)
+
+\- skin thickness (int)
+
+\- BMI (dec)
+
+\- diabetes pedigree function (dec)
+
+\- age (int)
+:::
+:::
+
+::: {.column width="50%"}
+::: {style="font-size: 75%;"}
+Outcome
+
+\- binary value indicating diabetes diagnosis within a 5-year period.
+
+The diagnostic criteria defined as 2 hour post-load plasma glucose at 200 (mg/dl)
+:::
+:::
+:::
+
+# Data Cleaning: Eliminating Null/NA records
+
+```{r}
+#| label: identify-na-values
+#| tbl-cap: "Pima missing records"
+
+knitr::kable(head(pima))
+
+```
+
+# Pima Dataset
+
+::: {style="font-size: 45%;"}
+```{r}
+#| label: describe-outcome
+#| tbl-cap: "Pima"
+
+knitr::kable(head(pima_clean))
+```
+:::
+
+
+# Cleaned Pima Dataset: Summary
+
+::: {style="font-size: 45%;"}
+```{r}
+#| label: describe-outcome-summary
+#| tbl-cap: "Pima"
+
+knitr::kable(summary(pima_clean))
+```
+:::
+
+
+# Explantory Variables
+
+```{r}
+#| label: hist var
+
+bycols <- colnames(pima_clean)
+
+melted_continuous <- reshape2::melt(data=pima_clean[c("glucose", "pressure", "triceps", "insulin", "mass", "pedigree", "age", "pregnant", "outcome")], id.vars = "outcome")
+
+
+# Plot histograms for continuous variables
+ggplot(melted_continuous, aes(x = value, fill = variable, color = variable)) +
+  geom_histogram() +
+  facet_wrap(~variable, scales = "free")
+
+```
+
+## Identifying Outliers
+
+```{r}
+#| label: boxplot-outliers
+
+pima_clean %>%
+  select(-c(outcome)) %>%
+  reshape2::melt() %>%
+  ggplot(aes(y=value)) + 
+  geom_boxplot() +
+  # geom_histogram() +
+  facet_wrap(~variable, scales = "free")
+
+```
+
+# Plotted against outcome
+
+```{r}
+#| label: against-outcome
+#| include: false
+
+p <- ggplot(melted_continuous, aes(x = value, y = outcome, color = factor(outcome))) +
+    geom_point() + 
+    stat_smooth(method="glm",
+                method.args = list(family = "binomial"), se = FALSE,
+    inherit.aes = FALSE,
+    aes(x = value, y = outcome)) +
+    facet_wrap(~variable, scales = "free")
+    
+ggsave('cors.png', plot=p)
+```
+
+![](cors.png)
+
+# Plotted against Blood Glucose
+
+```{r}
+#| label: against-bg
+
+pima_clean %>%
+  dplyr::select(-c(outcome)) %>%
+  reshape2::melt(id.vars = "glucose") %>%
+  ggplot(aes(x = value, y = glucose, color = variable)) +
+  geom_point() +
+  facet_wrap(~variable, scales = "free")
+
+```
+
+# Plotting Correlations within the Dataset: Pearson's correlation
+
+::: {style="font-size: 45%;"}
+```{r}
+#| label: cor-df
+
+cormat <- round(cor(pima_clean[,-9]), 2)
+knitr::kable(head(cormat))
+```
+:::
+
+# Plotting Correlations within the Dataset: Spearman correlation
+
+::: {style="font-size: 45%;"}
+```{r}
+#| label: cor-df2
+
+cormat_sp <- round(cor(pima_clean[,-9], method='spearman'), 2)
+knitr::kable(head(cormat_sp))
+```
+:::
+
+# Correlation Heatmaps: Pearsons vs Spearman
+
+::: columns
+::: {.column width="50%"}
+::: {style="font-size: 80%;"}
+```{r}
+#| label: cor-map2
+
+melted_cormat <- reshape2::melt(cormat)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+
+```
+:::
+:::
+
+::: {.column width="50%"}
+::: {style="font-size: 80%;"}
+```{r}
+#| label: cor-map
+
+melted_cormat_sp <- reshape2::melt(cormat_sp)
+ggplot(data = melted_cormat_sp, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+
+```
+:::
+:::
+:::
+
+## Regression Analysis: Univariate Logistic Regression
+
+```{r}
+#| label: uni-logistic-regression
+
+summary(pima_clean)
+Indicators <- pima_clean[, c("pregnant", "glucose", "pressure", "triceps", "insulin", "mass", "pedigree", "age")]
+
+models <- list()
+model_summaries <- list()
+# Iterate over the columns of 'Indicators' dataframe
+for (col in colnames(Indicators)) {
+  # Fit a logistic regression model for each predictor variable
+  form = as.formula(paste("outcome ~", col))
+  models[[col]] <- glm(formula=form, family = binomial(link = "logit"), data=pima_clean)
+  # Storing summary of each model in the list
+  model_summaries[[col]] <- summary(models[[col]])
+}
+
+for (col in names(model_summaries)) {
+  print(paste("Summary for", col, "predictor:"))
+  print(model_summaries[[col]])
+}
+
+```
+
+## Regression Analysis: Multivariate Logistic Regression
+
+```{r}
+#| label: multi-logistic-regression
+
+all_vars <- glm(outcome ~ ., family = binomial(link = "logit"), data=pima_clean)
+summary(all_vars) #slightly smaller .. so not contributing more than our 3 strongest values 361 
+
+strong_vars <- glm(outcome ~ glucose + age + mass + pedigree, family = binomial(link = "logit"), data=pima_clean)
+summary(strong_vars)
+
+```
+
+## Comparing Model Outcome: AIC - Akaike’s Information Criterion
+For logistic regression, we use AIC to compare model fit, similar to adjusted R^2
+where we see a penalty for additional parameters which don't contribute to the model. A lower AIC indicates a more parsimonious model.
+
+$$
+\text{k = number of parameters}\\
+\text{LL = log-likelihood}\\
+AIC =2*(k - LL)
+$$
+
+
+# Model Comparison using AIC: Which model performs best?
+```{r, results="asis", echo=FALSE}
+
+# displays model summaries in nice table
+stargazer(models,
+          all_vars = all_vars, 
+          strong_vars = strong_vars, 
+          # type = "html",
+          type="latex",
+          column.labels = c(names(models),
+          "All vars", "Strong vars"),
+          column.sep.width = "1pt",
+          font.size = "tiny"
+          )
+```
+
+
+
+# Best fit model analysis: Log-odds Ratios
+
+```{r, echo=FALSE, results="asis"}
+
+# transformation of confidence intervals from https://stackoverflow.com/questions/19576356/how-do-i-add-confidence-intervals-to-odds-ratios-in-stargazer-table
+oddsr = exp(strong_vars$coef)
+ci = exp(confint(strong_vars))
+pvals = summary(strong_vars)$coefficients[,4]
+tvals = summary(strong_vars)$coefficients[,3]
+
+stargazer(strong_vars,
+          # type = "html",
+          type="latex",
+          
+          column.labels = c("Strong vars"),
+          column.sep.width = "1pt",
+          font.size = "tiny",
+          coef = list(oddsr),
+          ci = TRUE,
+          ci.custom = list(ci),
+          p = list(pvals),
+          t = list(tvals),
+          t.auto = FALSE,
+          single.row = TRUE,
+          report = c("vcstp")
+)
+
+```
+
+
+# Post Hoc: Bonferroni Correction
+
+```{r}
+#| label: post hoc
+#| message: false
+#| echo: false
+
+new_p_value <- .05/4
+
+```
+
+$$
+αBonferroni​= α​/αm \\
+αBonferroni= .05/4 \\
+αBonferroni = 0.0125
+$$
+
+In the context of our analysis, we apply to the Bonferroni correction, adjusting the significance threshold by dividing it by the number of comparisons being made.
+
+Even with this new threshold, the p-values for all four variables remain significant.
+
+
+
+
+# Conclusions
+
+The model with lowest AIC contained the four strongest performing parameters
+
+-   Blood Glucose
+
+-   Mass
+
+-   Age
+
+-   Pedigree
+
+# Limitations
+
+-   The study findings might not be generalisable to a larger population.
+
+-   Null/Missing data limited the amount of viable observations.
+
+# References
+
+
+
